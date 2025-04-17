@@ -1,0 +1,95 @@
+common:
+    # 雷达和点云话题
+    lid_topic:  "/livox/lidar" 
+    imu_topic:  "/livox/imu" 
+
+    # 多传感器相关，建议不用这个，自己做对齐
+    con_frame: false # true: if you need to combine several LiDAR frames into one
+    con_frame_num: 1 # the number of frames combined
+    cut_frame: false # true: if you need to cut one LiDAR frame into several subframes
+    cut_frame_time_interval: 0.1 # should be integral fraction of 1 / LiDAR frequency
+
+    # 时间戳gap
+    time_lag_imu_to_lidar: 0.0 # Time offset between LiDAR and IMU calibrated by other algorithms, e.g., LI-Init (find in Readme)
+                               # the timesample of IMU is transferred from the current timeline to LiDAR's timeline by subtracting this value
+
+preprocess: 
+    lidar_type: 1 # 雷达点云格式，主要区分livox自定义点云格式和pcl定义的点云格式，这个参数建议不用，不同格式自己改代码就好
+    scan_line: 6 # 没有用
+    timestamp_unit: 1  # 没有用  # the unit of time/t field in the PointCloud2 rostopic: 0-second, 1-milisecond, 2-microsecond, 3-nanosecond.
+    blind: 1.0 # 预处理里，若点云距离雷达中心低于此值则不使用
+    space_down_sample: true     # 是否降采样
+    vf_scan_res_min: 0.05 # 自适应体素滤波初始分辨率
+    vf_scan_res_step: 0.1 # 自适应体素滤波分辨率增加步长
+    vf_max_num: 1000 # 自适应体素滤波点云结果最大数量
+    vf_scan_res_max: 1.0  # 自适应体素滤波最大分辨率
+
+mapping:
+    imu_en: true # 是否使用imu，这个必定为true程序才正确
+    b_acc_cov: 0.0001 # 加速度计bias的测量噪声，只在input模式下有用
+    b_gyr_cov: 0.0001 # 角速度计bias的测量噪声，只在input模式下有用
+    gyr_cov_input: 0.01 # input模式下角速度计的测量噪声 for IMU as input model
+    acc_cov_input: 0.1 # input模式下加速度计的测量噪声 for IMU as input model
+    extrinsic_est_en: false # 若给定外参则为false，这个参数表示是否拟合外参（这应该不是一个好主意） for aggressive motion, set this variable false
+
+    imu_time_inte: 0.005 # imu 数据的时间间隔，用来控制误差状态的状态转移更新频率 = 1 / frequency of IMU
+    lidar_time_inte: 0.01 # lidar 数据的时间间隔
+
+    satu_acc: 3.0 # 加速度计饱和值 the saturation value of IMU's acceleration. not related to the units
+    satu_gyro: 35 # 角速度计饱和值 the saturation value of IMU's angular velocity. not related to the units
+    acc_norm: 1.0 # 加速度单位，livox雷达出来的加速度数据是g，所以其acc_norm为1.0； 1.0 for g as unit, 9.81 for m/s^2 as unit of the IMU's acceleration
+
+    # 只在计算误差状态转移时有用 P_ = F_x1 * P_ * (F_x1).transpose() + Q * (dt * dt);
+    # 这里的值之所以比较大，因为噪声计算为 Q * (dt * dt)
+    acc_cov_output: 500 # output模式下加速度计误差的状态转移噪声
+    gyr_cov_output: 1000 # output模式下角速度计误差的状态转移噪声
+    
+    lidar_meas_cov: 0.001 # 0.001; 0.01 雷达观测噪声，目前观察到100hz雷达帧给0.001、10hz雷达帧给0.01比较合适
+    # 一般认为imu原始数据噪声不大，可以适当给小，且角速度计的噪声远小于加速度计噪声
+    imu_meas_acc_cov: 0.1 # 加速度计观测噪声 0.1 # 0.1
+    imu_meas_omg_cov: 0.01 # 角速度计观测噪声 0.01 # 0.1
+
+    plane_thr: 0.1 # 点到平面距离的阈值，若构成平面上的任意一点到平面距离大于0.1则不用
+    match_s: 64 # 点到平面距离阈值相关，这个参数比较抽象，看if (esti_plane(pabcd, points_near, plane_thr))处的注释
+
+    # ivox地图的搜索栅格大小，不是地图降采样的分辨率
+    # 搜索策略是在附近几个栅格内搜索最邻近点，所以这个体素的分辨率可以大一点
+    # 这个参数与地图分辨率无关，只用来加速搜索最邻近点，相关参数：GetClosestPoint的max_range参数，默认是5m，最邻近点的距离参数
+    # 但是如果过大会明显增加最邻近搜索的计算耗时，因为一个体素内要计算距离的点变多了
+    # 地图分辨率受 filter_size_map 影响，具体看 MapIncremental
+    ivox_grid_resolution: 0.5
+    filter_size_map: 0.1 # ivox地图点与点之间的距离阈值（地图降采样分辨率），这个分辨率会影响计算效率（GetClosestPoint）
+    ivox_nearby_type: 6 # 18 26
+    max_match_dist: 0.5 # max_range 搜寻最近点的最大距离，这个一般设置为 ivox_grid_resolution 1-2倍大即可 
+
+    gravity_align: true # 是否在初始化时与重力对齐，若为true则以重力方向为世界坐标系（gravity向量一般不会被优化更改），若为false则以初始姿态为世界坐标系（会更新gravity向量） true to align the z axis of world frame with the direction of gravity, and the gravity direction should be specified below
+    gravity: [0.0, 0.0, -9.810] # [0.0, 9.810, 0.0] # gravity to be aligned
+    extrinsic_T: [ 0.04165, 0.02326, -0.0284 ] # [ -0.011, -0.02329, 0.04412] # Til
+    extrinsic_R: [ 1, 0, 0,  # Ril
+                   0, 1, 0,
+                   0, 0, 1 ]
+
+odometry: 
+    publish_odometry_without_downsample: false
+
+publish:
+    path_en: true                 # false: close the path output
+    scan_publish_en: true         # false: close all the point cloud output
+
+pcd_save:
+    pcd_save_en: false
+    interval: -1                 # how many LiDAR frames saved in each pcd file; 
+                                 # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
+
+prop_at_freq_of_imu: true  # 让误差状态转移的频率与imu数据频率一致，无用，若为false的情况被我删除了
+use_imu_as_input: false     # 是否使用input模式
+check_satu: true            # 为true时，在imu数据超限时，不做观测更新
+init_map_size: 10000        # 初始地图所需要的点数，这个要求初始时静止累计点云地图，若初始化状态不稳定则尝试增加这个数
+point_filter_num: 1         # 点云降采样，每隔若干点取一个点使用，给1就好，没必要调
+filter_size_surf: 0.5       # 实时帧体素滤波分辨率
+runtime_pos_log_enable: false
+process_t_max: 0.01
+pure_loc: false
+asyn_locmap: false
+
+map_path: "/home/john/LJJ_SRC/lidar_slam/point_lio/ws_grid/src/Point-LIO-point-lio-with-grid-map/map2.pcd"
