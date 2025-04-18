@@ -7,6 +7,8 @@
 #include <unistd.h>
 
 #include <Eigen/Eigen>
+#include <pcl/registration/gicp.h>
+#include <pcl/registration/ndt.h>
 
 // ROS2 
 #include "rclcpp/rclcpp.hpp"
@@ -36,7 +38,7 @@ class laserMapping
 
   bool gravity_init();
 
-  bool map_init();
+  void map_init();
 
   LocalMapProcess *localmap_process_handle;
   void setLocalMapHandle(LocalMapProcess *_handle)
@@ -68,69 +70,71 @@ class laserMapping
   rclcpp::Node::SharedPtr nh;  // ROS2 节点
 
   li_initialization *li_int;
+  PointCloudXYZI::Ptr Global_map_load;
+  std::vector<bool> Global_map_bool_vector;
 
   template<typename T>
   void set_posestamp(T & out)
   {
-      out.position.x = kf_output.x_.pos(0);
-      out.position.y = kf_output.x_.pos(1);
-      out.position.z = kf_output.x_.pos(2);
-      Eigen::Quaterniond q(kf_output.x_.rot);
-      out.orientation.x = q.coeffs()[0];
-      out.orientation.y = q.coeffs()[1];
-      out.orientation.z = q.coeffs()[2];
-      out.orientation.w = q.coeffs()[3];
+    out.position.x = kf_output.x_.pos(0);
+    out.position.y = kf_output.x_.pos(1);
+    out.position.z = kf_output.x_.pos(2);
+    Eigen::Quaterniond q(kf_output.x_.rot);
+    out.orientation.x = q.coeffs()[0];
+    out.orientation.y = q.coeffs()[1];
+    out.orientation.z = q.coeffs()[2];
+    out.orientation.w = q.coeffs()[3];
   }
 
   void publish_odometry()
   {
-      nav_msgs::msg::Odometry odom_msg;
+    nav_msgs::msg::Odometry odom_msg;
 
-      odom_msg.header.frame_id = "camera_init";
-      odom_msg.child_frame_id = "body";
+    odom_msg.header.frame_id = "camera_init";
+    odom_msg.child_frame_id = "body";
 
-      odom_msg.header.stamp = rclcpp::Time(lidar_end_time * 1e9);
+    odom_msg.header.stamp = rclcpp::Time(lidar_end_time * 1e9);
 
-      set_posestamp(odom_msg.pose.pose);
+    set_posestamp(odom_msg.pose.pose);
 
-      pubOdomAftMapped->publish(odom_msg);
+    pubOdomAftMapped->publish(odom_msg);
 
-      geometry_msgs::msg::TransformStamped transformStamped;
-      transformStamped.header.stamp = odom_msg.header.stamp;
-      transformStamped.header.frame_id = "camera_init";
-      transformStamped.child_frame_id = "body";
-      transformStamped.transform.translation.x = odom_msg.pose.pose.position.x;
-      transformStamped.transform.translation.y = odom_msg.pose.pose.position.y;
-      transformStamped.transform.translation.z = odom_msg.pose.pose.position.z;
-      transformStamped.transform.rotation = odom_msg.pose.pose.orientation;
+    geometry_msgs::msg::TransformStamped transformStamped;
+    transformStamped.header.stamp = odom_msg.header.stamp;
+    transformStamped.header.frame_id = "camera_init";
+    transformStamped.child_frame_id = "body";
+    transformStamped.transform.translation.x = odom_msg.pose.pose.position.x;
+    transformStamped.transform.translation.y = odom_msg.pose.pose.position.y;
+    transformStamped.transform.translation.z = odom_msg.pose.pose.position.z;
+    transformStamped.transform.rotation = odom_msg.pose.pose.orientation;
 
-      tf_broadcaster_->sendTransform(transformStamped);
+    tf_broadcaster_->sendTransform(transformStamped);
   }
 
   void publish_frame_world()
   {
-      // 假设 feats_down_body 和 feats_down_world 是已填充好的 PointCloudXYZI::Ptr
-      PointCloudXYZI::Ptr laserCloudFullRes = feats_down_body;
-      int size = laserCloudFullRes->points.size();
+    // 假设 feats_down_body 和 feats_down_world 是已填充好的 PointCloudXYZI::Ptr
+    PointCloudXYZI::Ptr laserCloudFullRes = feats_down_body;
+    int size = laserCloudFullRes->points.size();
 
-      PointCloudXYZI::Ptr laserCloudWorld(new PointCloudXYZI(size, 1));
+    PointCloudXYZI::Ptr laserCloudWorld(new PointCloudXYZI(size, 1));
 
-      for (int i = 0; i < size; ++i)
-      {
-          laserCloudWorld->points[i].x = feats_down_world->points[i].x;
-          laserCloudWorld->points[i].y = feats_down_world->points[i].y;
-          laserCloudWorld->points[i].z = feats_down_world->points[i].z;
-          laserCloudWorld->points[i].intensity = feats_down_world->points[i].intensity;
-      }
+    for (int i = 0; i < size; ++i)
+    {
+        laserCloudWorld->points[i].x = feats_down_world->points[i].x;
+        laserCloudWorld->points[i].y = feats_down_world->points[i].y;
+        laserCloudWorld->points[i].z = feats_down_world->points[i].z;
+        laserCloudWorld->points[i].intensity = feats_down_world->points[i].intensity;
+    }
 
-      sensor_msgs::msg::PointCloud2 laserCloudMsg;
-      pcl::toROSMsg(*laserCloudWorld, laserCloudMsg);
+    sensor_msgs::msg::PointCloud2 laserCloudMsg;
+    pcl::toROSMsg(*laserCloudWorld, laserCloudMsg);
 
-      // 时间戳转换为 ROS2 类型（单位纳秒）
-      laserCloudMsg.header.stamp = rclcpp::Time(lidar_end_time * 1e9);
-      laserCloudMsg.header.frame_id = "camera_init";
+    // 时间戳转换为 ROS2 类型（单位纳秒）
+    laserCloudMsg.header.stamp = rclcpp::Time(lidar_end_time * 1e9);
+    laserCloudMsg.header.frame_id = "camera_init";
 
-      pubLaserFrameWorld->publish(laserCloudMsg);
+    pubLaserFrameWorld->publish(laserCloudMsg);
   }
 
 };

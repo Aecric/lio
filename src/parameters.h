@@ -21,6 +21,7 @@
 
 using IVoxType = faster_lio::IVox<3, faster_lio::IVoxNodeType::DEFAULT, PointType>;
 
+extern string root_dir;
 extern bool is_first_frame;
 extern double lidar_end_time, first_lidar_time, time_con;
 extern double last_timestamp_lidar, last_timestamp_imu;

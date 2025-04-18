@@ -1,5 +1,8 @@
 #include "parameters.h"
 
+
+string root_dir = ROOT_DIR;
+
 bool is_first_frame = true;
 double lidar_end_time = 0.0, first_lidar_time = 0.0, time_con = 0.0;
 int pcd_index = 0;

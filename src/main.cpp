@@ -3,9 +3,12 @@
 #include <Eigen/Eigen>
 #include <string>
 #include <unistd.h>
+#include "parameters.h"
 
 int main(int argc, char** argv)
 {
+    std::cout << "root_dir: " << root_dir << std::endl;
+
     // 设置固定核心
     {
         cpu_set_t cpuset;
@@ -17,7 +20,7 @@ int main(int argc, char** argv)
         }
     }
 
-    YAML::Node config = YAML::LoadFile("/home/pf/LJJ_SRC/lio/point_lio/ws_grid/Point-LIO-point-lio-with-grid-map/config/avia.yaml");
+    YAML::Node config = YAML::LoadFile(root_dir + "config/avia.yaml");
     readParameters(config);
 
     rclcpp::init(0, nullptr);

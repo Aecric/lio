@@ -89,7 +89,7 @@ point_filter_num: 1         # 点云降采样，每隔若干点取一个点使�
 filter_size_surf: 0.5       # 实时帧体素滤波分辨率
 runtime_pos_log_enable: false
 process_t_max: 0.01
-pure_loc: false
-asyn_locmap: false
+pure_loc: true
+asyn_locmap: true
 
-map_path: "/home/john/LJJ_SRC/lidar_slam/point_lio/ws_grid/src/Point-LIO-point-lio-with-grid-map/map2.pcd"
+map_path: "map/map.pcd"

@@ -3,7 +3,6 @@
 
 double serch_time = 0.0;
 using namespace std;     
-string root_dir = ROOT_DIR;
 
 laserMapping::laserMapping(rclcpp::Node::SharedPtr node_){
 
@@ -25,7 +24,7 @@ laserMapping::laserMapping(rclcpp::Node::SharedPtr node_){
     pubLaserFrameWorld = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_frame_world", 10);
     pubOdomAftMapped = nh->create_publisher<nav_msgs::msg::Odometry>("/lio_odom", 10);
     pubLaserReloc = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_reloc", 10);
-    pubLaserCloudMap = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map", 10);
+    pubLaserCloudMap = nh->create_publisher<sensor_msgs::msg::PointCloud2>("/global_map", 10);
 
     //   li_int->pubOdom_imufreq = nh->create_publisher<nav_msgs::msg::Odometry>("/Odom_imufreq", 10);
 
@@ -52,8 +51,6 @@ void laserMapping::reset_judge()
             laserCloudmsg.header.frame_id = "camera_init";
             pubLaserCloudMap->publish(laserCloudmsg);
             
-
-            std::cout << "save map to root_dir: " << root_dir << std::endl;
             pcl::io::savePCDFileBinary(root_dir + "map/map.pcd", clouds_local);
         }
 
@@ -61,7 +58,7 @@ void laserMapping::reset_judge()
 
 
         param_reset();
-        YAML::Node config = YAML::LoadFile("/home/pf/LJJ_SRC/lio/point_lio/ws_grid/Point-LIO-point-lio-with-grid-map/config/avia.yaml");
+        YAML::Node config = YAML::LoadFile(root_dir + "config/avia.yaml");
         readParameters(config);
         
         p_imu->Reset();    
@@ -153,54 +150,183 @@ bool laserMapping::gravity_init(){
 }
 
 
-bool laserMapping::map_init(){
+void laserMapping::map_init(){
     /*** initialize the map ***/
     // 确保初始化的时候静止1-2s
-    if(!init_map)
+    feats_down_world->resize(Measures.lidar->size());            
+    // 把点转到世界坐标系（重力对齐）
+    for(int i = 0; i < Measures.lidar->size(); i++)
     {
-        feats_down_world->resize(Measures.lidar->size());            
-        // 把点转到世界坐标系（重力对齐）
-        for(int i = 0; i < Measures.lidar->size(); i++)
-        {
-            pointBodyToWorld(&(Measures.lidar->points[i]), &(feats_down_world->points[i]));
-        }
-        // 存入点到init_feats_world
-        for (size_t i = 0; i < feats_down_world->size(); i++) 
-        {
-            init_feats_world->points.emplace_back(feats_down_world->points[i]);
-        }
-        // 如果点数不够则继续往地图里加点
-        if(init_feats_world->size() < init_map_size){
-            init_map = false;
-        }else{   
-            init_map = true;
-        }
-        // init_map流程可能会存有部分lidar数据缓存，把历史数据删除，重新对齐到最新帧处理
-        // imu数据不做删除，会在is_first_frame时自己对齐
-        if(init_map){
-            if(asyn_locmap){
-                localmap_process_handle->set_ivox(*ivox_);
-            }else{
-                ivox_->AddPoints(init_feats_world->points);
-            }
-
-            init_feats_world.reset(new PointCloudXYZI());
-            // // delay test
-            // sleep(5);
-            // std::cout << "lidar_buffer.size(): " << li_int->lidar_buffer.size() << std::endl;
-            // std::cout << "imu_deque.size(): " << li_int->imu_deque.size() << std::endl;
-            // 清空 deque
-            if (!li_int->lidar_buffer.empty()) {
-                li_int->lidar_buffer.clear();
-                li_int->imu_deque.clear();
-                li_int->time_buffer.clear();
-            }
-
-            std::cout << "-------- ivox_ map inited --------\n\n\n" << std::endl;
-        }
-        return false;
+        pointBodyToWorld(&(Measures.lidar->points[i]), &(feats_down_world->points[i]));
     }
-    return true;
+    // 存入点到init_feats_world
+    for (size_t i = 0; i < feats_down_world->size(); i++) 
+    {
+        init_feats_world->points.emplace_back(feats_down_world->points[i]);
+    }
+    // 如果点数不够则继续往地图里加点
+    if(init_feats_world->size() < init_map_size){
+        init_map = false;
+    }else{
+        // 手动重定位
+        if(pure_loc){
+            Eigen::Matrix4d T_ = Eigen::Matrix4d::Identity();
+
+            {
+                sensor_msgs::msg::PointCloud2 laserCloudmsg;
+                pcl::toROSMsg(*init_feats_world, laserCloudmsg);
+                laserCloudmsg.header.stamp = rclcpp::Time(static_cast<uint64_t>(lidar_end_time * 1e9));
+                laserCloudmsg.header.frame_id = "camera_init";
+                pubLaserReloc->publish(laserCloudmsg);
+            }
+
+            if(li_int->manual_reloc_flag){
+                li_int->manual_reloc_flag = false;
+
+                std::cout << " use maul reloc relocation: \n "<< li_int->manual_reloc_pose << std::endl;
+                std::cout << " init_feats_world->size(): "<< init_feats_world->size() << std::endl;
+                std::cout << " localmap_process_handle->Global_map_load->points.size(): "<< localmap_process_handle->Global_map_load->points.size() << std::endl;
+
+                // ResetLocalMap
+                PointCloudXYZI::Ptr Local_map_(new PointCloudXYZI());
+                Local_map_->points.reserve(50000);
+                if(asyn_locmap){
+                    std::fill(localmap_process_handle->Global_map_bool_vector.begin(), localmap_process_handle->Global_map_bool_vector.end(), false);
+                    for (int i = 0; i < localmap_process_handle->Global_map_load->points.size(); i++){
+                        if (abs(localmap_process_handle->Global_map_load->points[i].x - li_int->manual_reloc_pose(0, 3)) > 100 ||
+                            abs(localmap_process_handle->Global_map_load->points[i].y - li_int->manual_reloc_pose(1, 3)) > 100 ||
+                            abs(localmap_process_handle->Global_map_load->points[i].z - li_int->manual_reloc_pose(2, 3)) > 100){
+                        continue;
+                        }
+                        
+                        PointType p;
+                        p.x = localmap_process_handle->Global_map_load->points[i].x;
+                        p.y = localmap_process_handle->Global_map_load->points[i].y;
+                        p.z = localmap_process_handle->Global_map_load->points[i].z;
+                        p.intensity = localmap_process_handle->Global_map_load->points[i].intensity;
+                        localmap_process_handle->Global_map_bool_vector[i] = true;
+                        Local_map_->points.emplace_back(p);
+                    }
+                }else{
+                    std::fill(Global_map_bool_vector.begin(), Global_map_bool_vector.end(), false);
+                    for (int i = 0; i < Global_map_load->points.size(); i++){
+                        if (abs(Global_map_load->points[i].x - li_int->manual_reloc_pose(0, 3)) > 100 ||
+                            abs(Global_map_load->points[i].y - li_int->manual_reloc_pose(1, 3)) > 100 ||
+                            abs(Global_map_load->points[i].z - li_int->manual_reloc_pose(2, 3)) > 100){
+                        continue;
+                        }
+                        
+                        PointType p;
+                        p.x = Global_map_load->points[i].x;
+                        p.y = Global_map_load->points[i].y;
+                        p.z = Global_map_load->points[i].z;
+                        p.intensity = Global_map_load->points[i].intensity;
+                        Global_map_bool_vector[i] = true;
+                        Local_map_->points.emplace_back(p);
+                    }
+                }
+                std::cout << " Local_map_->size(): "<< Local_map_->size() << std::endl;
+
+
+                PointCloudXYZI::Ptr output(new PointCloudXYZI());
+                pcl::NormalDistributionsTransform<PointType, PointType> ndt;
+                ndt.setTransformationEpsilon(1e-8);
+                ndt.setTransformationRotationEpsilon(1e-8);
+                ndt.setStepSize(0.7); // maximum step length
+                ndt.setMaximumIterations(40);
+                ndt.setResolution(1.0);
+                ndt.setInputTarget(Local_map_);
+                ndt.setInputSource(init_feats_world);
+                ndt.align(*output, li_int->manual_reloc_pose.cast<float>());
+                double ndt_score_ = ndt.getTransformationProbability();
+
+                std::cout << "ndt_Itera_: " << ndt.getFinalNumIteration() << std::endl;
+                std::cout << "ndt_score_: " << ndt_score_ << std::endl; 
+                std::cout << "ndt.getFinalTransformation(): \n" << ndt.getFinalTransformation() << std::endl;
+
+                // ndt 得分跟它设置的分辨率有关，1.0分辨率下 score大于4.0合适
+                if(ndt_score_ > 3.0){
+                    // 再来一遍gicp提高初始化精度
+                    pcl::GeneralizedIterativeClosestPoint<PointType, PointType> gicp;
+                    gicp.setInputSource(init_feats_world);
+                    gicp.setInputTarget(Local_map_);
+                    gicp.setCorrespondenceRandomness(10); // 设置选择点邻域时使用的邻居数量
+                    gicp.setMaximumIterations(50);       // 设置最大迭代次数
+                    gicp.setTransformationEpsilon(1e-8); // 设置转换精度
+                    gicp.setTransformationRotationEpsilon(1e-8);
+                    gicp.setMaxCorrespondenceDistance(5.0); // 设置对应点对的最大距离
+                    // 存储配准结果
+                    PointCloudXYZI::Ptr cloud_aligned(new PointCloudXYZI());
+                    gicp.align(*cloud_aligned , ndt.getFinalTransformation());
+
+                    // 输出配准信息
+                    if (gicp.hasConverged()) {
+                        T_ = gicp.getFinalTransformation().cast<double>();
+                        std::cout << "GICP配准成功!" << std::endl;
+                        std::cout << "配准分数: " << gicp.getFitnessScore() << std::endl; // 配准后每对对应点之间的欧氏距离。分数参考意义不大，很难判断匹配结果可靠性
+                        std::cout << "T_: \n" << T_ << std::endl;
+
+                        // 把点转到世界坐标系，并显示
+                        {                        
+                            for(int i = 0; i < init_feats_world->size(); i++)
+                            {
+                                Eigen::Vector3d p_pre(init_feats_world->points[i].x, init_feats_world->points[i].y, init_feats_world->points[i].z);
+                                Eigen::Vector3d p_aft;
+                                p_aft = T_.block<3, 3>(0, 0) * p_pre + T_.block<3, 1>(0, 3);
+
+                                init_feats_world->points[i].x = p_aft(0);
+                                init_feats_world->points[i].y = p_aft(1);
+                                init_feats_world->points[i].z = p_aft(2);
+                            }
+                        }
+                    } else {
+                        std::cout << "GICP配准失败!" << std::endl;
+                        return;
+                    }
+                }else{
+                    std::cout << "NDT配准失败!" << std::endl;
+                    return;
+                }
+
+                // 手动初始化完成后，更新eskf的状态、根据初始位置构建ivox
+                state_output state_out;
+                state_out.gravity = p_imu->gravity_;
+                state_out.rot = T_.block<3, 3>(0, 0)*kf_output.x_.rot;
+                state_out.pos = T_.block<3, 1>(0, 3);
+                kf_output.change_x(state_out);
+                std::cout << "kf_output changed in reloc" << std::endl;
+
+                ivox_->AddPoints(Local_map_->points);
+            }else{
+                if(init_feats_world->size() > init_map_size){
+                    init_feats_world.reset(new PointCloudXYZI());
+                }
+                return;
+            }
+        }
+
+        if(asyn_locmap){
+            localmap_process_handle->set_ivox(*ivox_);
+        }else{
+            ivox_->AddPoints(init_feats_world->points);
+        }
+
+        init_feats_world.reset(new PointCloudXYZI());
+        // // delay test
+        // sleep(5);
+        // std::cout << "lidar_buffer.size(): " << li_int->lidar_buffer.size() << std::endl;
+        // std::cout << "imu_deque.size(): " << li_int->imu_deque.size() << std::endl;
+        // 清空 deque
+        if (!li_int->lidar_buffer.empty()) {
+            li_int->lidar_buffer.clear();
+            li_int->imu_deque.clear();
+            li_int->time_buffer.clear();
+        }
+
+        init_map = true;
+        std::cout << "-------- ivox_ map inited --------\n\n\n" << std::endl;
+    }
+    return;
 }
 
 
@@ -237,6 +363,43 @@ void laserMapping::run()
     kf_output.change_P(P_init_output);
     Eigen::Matrix<double, 30, 30> Q_output = process_noise_cov_output();
 
+
+
+    // PointCloudXYZI::Ptr Global_map_load(new PointCloudXYZI());
+    // std::vector<bool> Global_map_bool_vector;
+    Global_map_load = PointCloudXYZI::Ptr (new PointCloudXYZI());
+    if(pure_loc){
+        if(!asyn_locmap){
+            // load map
+            if (pcl::io::loadPCDFile(root_dir+map_path, *Global_map_load) == 0) {
+                std::cout << "Successfully loaded Global_map: " << map_path << std::endl;
+                std::cout << "PointCloud size: " << Global_map_load->points.size() << std::endl;
+            } else {
+                std::cerr << "Failed to load Global_map PCD file: " << map_path << std::endl;
+                exit(0);
+            }
+
+            Global_map_bool_vector.resize(Global_map_load->size(), false);
+
+            sensor_msgs::msg::PointCloud2 laserCloudmsg;
+            pcl::toROSMsg(*Global_map_load, laserCloudmsg);
+            laserCloudmsg.header.stamp = nh->now();
+            laserCloudmsg.header.frame_id = "camera_init";
+            pubLaserCloudMap->publish(laserCloudmsg);
+        }else{
+            while(localmap_process_handle->Global_map_load->empty()){
+                std::cout << "Waiting for Global_map_load..." << std::endl;
+                usleep(10000);
+            }
+
+            sensor_msgs::msg::PointCloud2 laserCloudmsg;
+            pcl::toROSMsg(*localmap_process_handle->Global_map_load, laserCloudmsg);
+            laserCloudmsg.header.stamp = nh->now();
+            laserCloudmsg.header.frame_id = "camera_init";
+            pubLaserCloudMap->publish(laserCloudmsg);
+        }
+    }
+
     while(true){
         reset_judge();
 
@@ -259,14 +422,14 @@ void laserMapping::run()
             continue;
         }
 
-        if(!map_init()){
-            // std::cout << "map_init() not finished" << std::endl;
+        if(!init_map){
+            map_init();
             continue;
         }
 
         // // debug
-        // std::cout << "lidar_buffer.size(): " << li_int->lidar_buffer.size() << std::endl;
-        // std::cout << "imu_deque.size(): " << li_int->imu_deque.size() << std::endl;
+        std::cout << "lidar_buffer.size(): " << li_int->lidar_buffer.size() << std::endl;
+        std::cout << "imu_deque.size(): " << li_int->imu_deque.size() << std::endl;
         // printf("lidar_end_time: %.4f\n", lidar_end_time);
         // printf("rclcpp::Time(li_int->imu_deque.front()->header.stamp).seconds(): %.4f\n", 
         //     rclcpp::Time(li_int->imu_deque.front()->header.stamp).seconds());
@@ -504,7 +667,7 @@ void laserMapping::run()
 
         usleep(2000);
         // sleep(1);
-        std::cout << "test" << std::endl;
+        // std::cout << "test" << std::endl;
     }
 
 }

@@ -117,17 +117,18 @@ void li_initialization::reset_cbk(const std::shared_ptr<const std_msgs::msg::Boo
 
 void li_initialization::initialpose_callback(const std::shared_ptr<const geometry_msgs::msg::PoseWithCovarianceStamped> input)
 {
-//   Eigen::Quaterniond q;
-//   q.x() = input->pose.pose.orientation.x;
-//   q.y() = input->pose.pose.orientation.y;
-//   q.z() = input->pose.pose.orientation.z;
-//   q.w() = input->pose.pose.orientation.w;
-//   manual_reloc_pose.block<3, 3>(0, 0) =  q.toRotationMatrix();
-//   manual_reloc_pose(0, 3) = input->pose.pose.position.x;
-//   manual_reloc_pose(1, 3) = input->pose.pose.position.y;
-//   manual_reloc_pose(2, 3) = ManualReloPose_z_;
-//   manual_reloc_pose.block<1, 4>(3, 0) << 0, 0, 0, 1;
-//   manual_reloc_flag = true;
+  Eigen::Quaterniond q;
+  q.x() = input->pose.pose.orientation.x;
+  q.y() = input->pose.pose.orientation.y;
+  q.z() = input->pose.pose.orientation.z;
+  q.w() = input->pose.pose.orientation.w;
+  manual_reloc_pose.block<3, 3>(0, 0) =  q.toRotationMatrix();
+  manual_reloc_pose(0, 3) = input->pose.pose.position.x;
+  manual_reloc_pose(1, 3) = input->pose.pose.position.y;
+  manual_reloc_pose(2, 3) = ManualReloPose_z_;
+  manual_reloc_pose.block<1, 4>(3, 0) << 0, 0, 0, 1;
+  manual_reloc_flag = true;
+  std::cout << "Received initialpose" << std::endl;
 }
 
 

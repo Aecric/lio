@@ -52,7 +52,7 @@ public:
         *ivox_map_set = iv; // 为了不影响原数据，这里直接进行深拷贝
         ivox_map_set_flag = true;
         lock.unlock();
-        // std::cout << "set_ivox: " << ivox_map_set->NumValidGrids() << std::endl;
+        std::cout << "[LocalMapProcess] set_ivox: " << ivox_map_set->NumValidGrids() << std::endl;
     };
 
     void get_ivox(std::shared_ptr<IVoxType> iv){
