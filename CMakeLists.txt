@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.3)
-project(odom_module)
+project(lio)
 
 SET(CMAKE_BUILD_TYPE "Release") # Release Debug
 
@@ -20,16 +20,16 @@ find_package(yaml-cpp REQUIRED)
 
 
 # for ros2
-# find_package(rclcpp REQUIRED)
+find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
-# find_package(tf2 REQUIRED)
-# find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
-add_executable(odom_module 
+add_executable(pointlio_mapping 
   src/main.cpp
   src/laserMapping.cpp 
   src/li_initialization.cpp 
@@ -40,7 +40,7 @@ add_executable(odom_module
   # src/MapProcess.cpp 
   src/LocalMapProcess.cpp
 )
-target_link_libraries(odom_module 
+target_link_libraries(pointlio_mapping 
   ${PCL_LIBRARIES} 
   ${nav_msgs_LIBRARIES} 
   ${pcl_conversions_LIBRARIES} 
@@ -50,8 +50,9 @@ target_link_libraries(odom_module
   pthread
 )
 
+
 target_include_directories(
-  odom_module
+  pointlio_mapping
   PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${CMAKE_CURRENT_SOURCE_DIR}/src
          ${nav_msgs_INCLUDE_DIRS}
@@ -76,6 +77,21 @@ target_include_directories(
 #                 src/IMU_Processing.cpp src/MapProcess.cpp src/LocalMapProcess.cpp)
 # target_link_libraries(pointlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES} yaml-cpp)
 # target_include_directories(pointlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+
+install(TARGETS
+        pointlio_mapping
+        DESTINATION lib/${PROJECT_NAME}
+)
+install(
+  DIRECTORY config launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+
+ament_export_dependencies(rclcpp  geometry_msgs nav_msgs sensor_msgs std_msgs  pcl_conversions tf2_ros tf2 tf2_geometry_msgs  Eigen3 PCL)
+
+ament_package()
+
 
 
 

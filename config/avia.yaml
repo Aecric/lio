@@ -60,7 +60,7 @@ mapping:
     ivox_grid_resolution: 0.5
     filter_size_map: 0.1 # ivox地图点与点之间的距离阈值（地图降采样分辨率），这个分辨率会影响计算效率（GetClosestPoint）
     ivox_nearby_type: 6 # 18 26
-    max_match_dist: 0.5 # max_range 搜寻最近点的最大距离，这个一般设置为 ivox_grid_resolution 1-2倍大即可 
+    max_match_dist: 0.9 # max_range 搜寻最近点的最大距离，这个一般设置为 ivox_grid_resolution 1-2倍大即可 
 
     gravity_align: true # 是否在初始化时与重力对齐，若为true则以重力方向为世界坐标系（gravity向量一般不会被优化更改），若为false则以初始姿态为世界坐标系（会更新gravity向量） true to align the z axis of world frame with the direction of gravity, and the gravity direction should be specified below
     gravity: [0.0, 0.0, -9.810] # [0.0, 9.810, 0.0] # gravity to be aligned
@@ -92,4 +92,4 @@ process_t_max: 0.01
 pure_loc: true
 asyn_locmap: true
 
-map_path: "map/map.pcd"
+map_path: "/home/ums/3d_slam_ws/src/Point-LIO/PCD/tjyx_outdoor.pcd"
